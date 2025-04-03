@@ -249,6 +249,6 @@ end
 #visualize_trajectory(model, mvis, trajectory_solution)
 
 
-a1 = UnitreeA1()
-mvis = initialize_visualizer(a1)
-open(mvis)
+# a1 = UnitreeA1()
+# mvis = initialize_visualizer(a1)
+# open(mvis)
