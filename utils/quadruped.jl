@@ -15,9 +15,19 @@ using Colors
 const URDFPATH = joinpath(@__DIR__,"a1","urdf","a1.urdf")
 # const URDFPATH = "/Users/kevintracy/devel/hw_ideas/hw1/Q2/a1/urdf/a1.urdf"
 
-function attach_foot!(mech::Mechanism{T}, foot="RR"; revolute::Bool=true) where T
+function has_joint(mech::Mechanism, joint_name::String)
+    try
+        joint = findjoint(mech, joint_name)
+        return true
+    catch e
+        return false
+    end
+end
+
+
+function attach_foot!(mech::Mechanism{T}, foot_name::String="RR"; revolute::Bool=true) where T
     # Get the relevant bodies from the model
-    foot = findbody(mech, foot * "_foot")
+    foot = findbody(mech, foot_name * "_foot")
     trunk = findbody(mech, "trunk")
     world = findbody(mech, "world")
 
@@ -43,11 +53,13 @@ function attach_foot!(mech::Mechanism{T}, foot="RR"; revolute::Bool=true) where 
             foot_joint,
             joint_pose = world_to_joint,
         )
-        remove_joint!(mech, findjoint(mech, "base_to_world"))
+        if has_joint(mech, "base_to_world")
+            remove_joint!(mech, findjoint(mech, "base_to_world"))
+        end
     else
         # Create dummy bodies 
-        dummy1 = RigidBody{T}("dummy1")
-        dummy2 = RigidBody{T}("dummy2")
+        dummy1 = RigidBody{T}("dummy1_" * foot_name)
+        dummy2 = RigidBody{T}("dummy2_" * foot_name)
         for body ∈ (dummy1, dummy2)
             inertia = SpatialInertia(default_frame(body),
                 moment = I(3)*1e-3,
@@ -58,7 +70,7 @@ function attach_foot!(mech::Mechanism{T}, foot="RR"; revolute::Bool=true) where 
         end
 
         # X-Joint
-        foot_joint_x = Joint("foot_joint_x", Revolute{T}(SA[1,0,0]))
+        foot_joint_x = Joint("foot_joint_x_" * foot_name, Revolute{T}(SA[1,0,0]))
         world_to_joint = Transform3D(
             frame_before(foot_joint_x),
             default_frame(world),
@@ -72,7 +84,7 @@ function attach_foot!(mech::Mechanism{T}, foot="RR"; revolute::Bool=true) where 
         )
 
         # Y-Joint
-        foot_joint_y = Joint("foot_joint_y", Revolute{T}(SA[0,1,0]))
+        foot_joint_y = Joint("foot_joint_y_" * foot_name, Revolute{T}(SA[0,1,0]))
         dummy_to_dummy = Transform3D(
             frame_before(foot_joint_y),
             default_frame(dummy1),
@@ -86,7 +98,7 @@ function attach_foot!(mech::Mechanism{T}, foot="RR"; revolute::Bool=true) where 
         )
 
         # Z-Joint
-        foot_joint_z = Joint("foot_joint_z", Revolute{T}(SA[0,0,1]))
+        foot_joint_z = Joint("foot_joint_z_" * foot_name, Revolute{T}(SA[0,0,1]))
         joint_to_foot = Transform3D(
             frame_before(foot_joint_z),
             default_frame(dummy2),
@@ -98,13 +110,20 @@ function attach_foot!(mech::Mechanism{T}, foot="RR"; revolute::Bool=true) where 
             foot_joint_z,
             joint_pose = joint_to_foot
         )
-        remove_joint!(mech, findjoint(mech, "base_to_world"))
+        if has_joint(mech, "base_to_world")
+            remove_joint!(mech, findjoint(mech, "base_to_world"))
+        end
+        
     end
 end
 
 function build_quadruped()
     a1 = parse_urdf(URDFPATH, floating=true, remove_fixed_tree_joints=false) 
     attach_foot!(a1)
+    # for leg in ("FR", "RL", "RR", "FL")
+    #     attach_foot!(a1, leg; revolute=true)
+    # end
+    
     return a1
 end
 
@@ -159,16 +178,16 @@ function initial_state(model::UnitreeA1)
     state = model.statecache[Float64]
     a1 = model.mech
     zero!(state)
-    leg = ("FR","FL","RR","RL")
-    for i = 1:4
-        s = isodd(i) ? 1 : -1
-        f = i < 3 ? 1 : -1
-        set_configuration!(state, findjoint(a1, leg[i] * "_hip_joint"), deg2rad(-20s))
-        set_configuration!(state, findjoint(a1, leg[i] * "_thigh_joint"), deg2rad(-30f))
-        set_configuration!(state, findjoint(a1, leg[i] * "_calf_joint"), deg2rad(10f))
-    end
-    set_configuration!(state, findjoint(a1, "foot_joint_x"), deg2rad(00))
-    set_configuration!(state, findjoint(a1, "foot_joint_y"), deg2rad(-00))
+    # leg = ("FR","FL","RR","RL")
+    # for i = 1:4
+    #     s = isodd(i) ? 1 : -1
+    #     f = i < 3 ? 1 : -1
+    #     set_configuration!(state, findjoint(a1, leg[i] * "_hip_joint"), deg2rad(-20s))
+    #     set_configuration!(state, findjoint(a1, leg[i] * "_thigh_joint"), deg2rad(-30f))
+    #     set_configuration!(state, findjoint(a1, leg[i] * "_calf_joint"), deg2rad(10f))
+    # end
+    # set_configuration!(state, findjoint(a1, "foot_joint_x"), deg2rad(00))
+    # set_configuration!(state, findjoint(a1, "foot_joint_y"), deg2rad(-00))
 
     return [configuration(state); velocity(state)]
 end
@@ -177,7 +196,6 @@ function goal_state(model::UnitreeA1, box_height::Float64, box_distance::Float64
     state = model.statecache[Float64]
     a1 = model.mech
     zero!(state)
-
     leg = ("FR", "FL", "RR", "RL")
     for i = 1:4
         s = isodd(i) ? 1 : -1  
@@ -185,17 +203,45 @@ function goal_state(model::UnitreeA1, box_height::Float64, box_distance::Float64
 
         # Adjust joint angles for landing posture
         set_configuration!(state, findjoint(a1, leg[i] * "_hip_joint"), deg2rad(0))
-        set_configuration!(state, findjoint(a1, leg[i] * "_thigh_joint"), deg2rad(-45 * f))
-        set_configuration!(state, findjoint(a1, leg[i] * "_calf_joint"), deg2rad(45 * f))
+        set_configuration!(state, findjoint(a1, leg[i] * "_thigh_joint"), deg2rad(-45f))
+        set_configuration!(state, findjoint(a1, leg[i] * "_calf_joint"), deg2rad(45f))
     end
 
     # Set base position to be on top of the box
-    set_configuration!(state, findjoint(a1, "base_to_world"), [box_distance, 0.0, box_height])
+    set_configuration!(state, findjoint(a1, "floating_base"), [box_distance, 0.0, box_height])
 
     # Set velocities to zero (robot is stationary after landing)
-    zero!(velocity(state))
+    zero_velocity!(state)
 
     return [configuration(state); velocity(state)]
+end
+
+function switch_to_aerial!(mech::Mechanism, foot="RR")
+    # remove foot constraint
+    detach_foot!(mech, foot; revolute=true)
+    # re-add floating base
+    add_floating_base!(mech)
+end
+
+function detach_foot!(mech::Mechanism, foot="RR"; revolute=true)
+    if revolute
+        for axis in ["x", "y", "z"]
+            name = "foot_joint_$axis"
+            joint = findjoint(mech, name)
+            joint !== nothing && remove_joint!(mech, joint)
+        end
+    else
+        joint = findjoint(mech, "foot_joint")
+        joint !== nothing && remove_joint!(mech, joint)
+    end
+end
+
+function add_floating_base!(mech::Mechanism)
+    base = findbody(mech, "trunk")
+    world = findbody(mech, "world")
+
+    floating_joint = Joint("base_to_world", Floating{Float64}())
+    attach!(mech, world, base, floating_joint)
 end
 
 
