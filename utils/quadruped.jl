@@ -120,6 +120,9 @@ end
 function build_quadruped()
     a1 = parse_urdf(URDFPATH, floating=true, remove_fixed_tree_joints=false) 
     attach_foot!(a1)
+    attach_foot!(a1, "RL")
+    #attach_foot!(a1, "FR")
+    #attach_foot!(a1, "FL")
     # for leg in ("FR", "RL", "RR", "FL")
     #     attach_foot!(a1, leg; revolute=true)
     # end
@@ -144,7 +147,7 @@ function UnitreeA1()
     UnitreeA1(build_quadruped())
 end
 
-state_dim(model::UnitreeA1) = 30
+state_dim(model::UnitreeA1) = num_positions(model.mech) + num_velocities(model.mech)
 control_dim(model::UnitreeA1) = 12 
 function get_partition(model::UnitreeA1)
     n,m = state_dim(model), control_dim(model)
@@ -158,7 +161,7 @@ function dynamics(model::UnitreeA1, x::AbstractVector{T1}, u::AbstractVector{T2}
 
     # Convert from state ordering to the ordering of the mechanism
     copyto!(state, x)
-    τ = [zeros(3); u]
+    τ = [zeros(num_velocities(model.mech)-12); u]
     dynamics!(res, state, τ)
     q̇ = res.q̇
     v̇ = res.v̇
@@ -226,7 +229,7 @@ end
 function detach_foot!(mech::Mechanism, foot="RR"; revolute=true)
     if revolute
         for axis in ["x", "y", "z"]
-            name = "foot_joint_$axis"
+            name = "foot_joint_$axis" * "_" * foot
             joint = findjoint(mech, name)
             joint !== nothing && remove_joint!(mech, joint)
         end
