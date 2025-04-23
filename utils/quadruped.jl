@@ -53,9 +53,9 @@ function attach_foot!(mech::Mechanism{T}, foot_name::String="RR"; revolute::Bool
             foot_joint,
             joint_pose = world_to_joint,
         )
-        if has_joint(mech, "base_to_world")
-            remove_joint!(mech, findjoint(mech, "base_to_world"))
-        end
+        # if has_joint(mech, "base_to_world")
+        #     remove_joint!(mech, findjoint(mech, "base_to_world"))
+        # end
     else
         # Create dummy bodies 
         dummy1 = RigidBody{T}("dummy1_" * foot_name)
@@ -110,9 +110,9 @@ function attach_foot!(mech::Mechanism{T}, foot_name::String="RR"; revolute::Bool
             foot_joint_z,
             joint_pose = joint_to_foot
         )
-        if has_joint(mech, "base_to_world")
-            remove_joint!(mech, findjoint(mech, "base_to_world"))
-        end
+        # if has_joint(mech, "base_to_world")
+        #     remove_joint!(mech, findjoint(mech, "base_to_world"))
+        # end
         
     end
 end
@@ -120,13 +120,13 @@ end
 function build_quadruped()
     a1 = parse_urdf(URDFPATH, floating=true, remove_fixed_tree_joints=false) 
     attach_foot!(a1)
+    remove_joint!(a1, findjoint(a1, "base_to_world"))
     attach_foot!(a1, "RL")
     #attach_foot!(a1, "FR")
     #attach_foot!(a1, "FL")
     # for leg in ("FR", "RL", "RR", "FL")
     #     attach_foot!(a1, leg; revolute=true)
     # end
-    
     return a1
 end
 
@@ -161,7 +161,7 @@ function dynamics(model::UnitreeA1, x::AbstractVector{T1}, u::AbstractVector{T2}
 
     # Convert from state ordering to the ordering of the mechanism
     copyto!(state, x)
-    τ = [zeros(num_velocities(model.mech)-12); u]
+    τ = [zeros(3); u; zeros(2)]
     dynamics!(res, state, τ)
     q̇ = res.q̇
     v̇ = res.v̇
@@ -169,8 +169,8 @@ function dynamics(model::UnitreeA1, x::AbstractVector{T1}, u::AbstractVector{T2}
 end
 
 function jacobian(model::UnitreeA1, x, u)
-    ix = SVector{30}(1:30)
-    iu = SVector{12}(31:42)
+    ix = SVector{34}(1:34)
+    iu = SVector{12}(35:46)
     faug(z) = dynamics(model, z[ix], z[iu])
     z = [x; u]
     ForwardDiff.jacobian(faug, z)
@@ -178,19 +178,54 @@ end
 
 # Set initial guess
 function initial_state(model::UnitreeA1)
+    state = MechanismState(model.mech) #state = model.statecache[Float64]
+    a1 = model.mech
+    zero!(state)
+    leg = ("FR","FL","RR","RL")
+    for i = 1:4
+        # s = isodd(i) ? 1 : -1
+        # f = i < 3 ? 1 : -1
+        set_configuration!(state, findjoint(a1, leg[i] * "_hip_joint"), deg2rad(00))
+        set_configuration!(state, findjoint(a1, leg[i] * "_thigh_joint"), deg2rad(50))
+        set_configuration!(state, findjoint(a1, leg[i] * "_calf_joint"), deg2rad(-100))
+    end
+    # UNCOMMENT THIS PART FOR FLOATING BASE 
+    # floating_joint = findjoint(a1, "base_to_world")
+    # trunk_height = get_foot_position(model, configuration(state))[3]
+    # set_configuration!(state, floating_joint, [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, -trunk_height])
+    # END
+
+    set_configuration!(state, findjoint(a1, "foot_joint_x_RR"), deg2rad(00))
+    set_configuration!(state, findjoint(a1, "foot_joint_y_RR"), deg2rad(-50))
+    set_configuration!(state, findjoint(a1, "foot_joint_x_RL"), deg2rad(00))
+    set_configuration!(state, findjoint(a1, "foot_joint_y_RL"), deg2rad(-50))
+
+    return [configuration(state); velocity(state)]
+end
+
+function hind_legs_state(model::UnitreeA1)
     state = model.statecache[Float64]
     a1 = model.mech
     zero!(state)
-    # leg = ("FR","FL","RR","RL")
-    # for i = 1:4
-    #     s = isodd(i) ? 1 : -1
-    #     f = i < 3 ? 1 : -1
-    #     set_configuration!(state, findjoint(a1, leg[i] * "_hip_joint"), deg2rad(-20s))
-    #     set_configuration!(state, findjoint(a1, leg[i] * "_thigh_joint"), deg2rad(-30f))
-    #     set_configuration!(state, findjoint(a1, leg[i] * "_calf_joint"), deg2rad(10f))
-    # end
-    # set_configuration!(state, findjoint(a1, "foot_joint_x"), deg2rad(00))
-    # set_configuration!(state, findjoint(a1, "foot_joint_y"), deg2rad(-00))
+    leg = ("FR","FL","RR","RL")
+    for i = 1:2
+        s = isodd(i) ? 1 : -1
+        f = i < 3 ? 1 : -1
+        # set FR, FL
+        set_configuration!(state, findjoint(a1, leg[i] * "_hip_joint"), -0.009836778663223645s)
+        set_configuration!(state, findjoint(a1, leg[i] * "_thigh_joint"), 0.016964453132483102)
+        set_configuration!(state, findjoint(a1, leg[i] * "_calf_joint"), 0.004758019542372259)
+
+        # set RR, RL 
+        set_configuration!(state, findjoint(a1, leg[i + 2] * "_hip_joint"), -0.0007997782745616991s)
+        set_configuration!(state, findjoint(a1, leg[i + 2] * "_thigh_joint"), 0.1272482316068922)
+        set_configuration!(state, findjoint(a1, leg[i + 2] * "_calf_joint"), 0.23113053507838607)
+    end
+
+    set_configuration!(state, findjoint(a1, "foot_joint_x_RR"), -0.00034439809533595776)
+    set_configuration!(state, findjoint(a1, "foot_joint_y_RR"), -0.31003837706183407)
+    set_configuration!(state, findjoint(a1, "foot_joint_x_RL"), -0.00034439809533595776)
+    set_configuration!(state, findjoint(a1, "foot_joint_y_RL"), -0.31003837706183407)
 
     return [configuration(state); velocity(state)]
 end
@@ -261,8 +296,8 @@ end
 
 function add_block(vis::Visualizer; 
     name::String="block",
-    position=Translation(0.5, -0.3, 0.),  # Default position: 0.5m in front, centered
-    size=Vec(1.0, 0.6, 0.3),              # 10cm cube
+    position=Translation(0.4, -0.3, 0.),  # Default position: 0.5m in front, centered
+    size=Vec(1.0, 0.6, 0.32),              # 10cm cube
     color=RGB(0.8, 0.2, 0.2)              # Red color
 )
     # Create and configure block geometry
@@ -301,3 +336,41 @@ end
 # a1 = UnitreeA1()
 # mvis = initialize_visualizer(a1)
 # open(mvis)
+
+
+function get_trunk_position(model::UnitreeA1, q)
+    mech = model.mech 
+    T = eltype(q)
+    state = MechanismState{T}(mech)
+    set_configuration!(state, q)
+
+    trunk = findbody(mech, "base")
+    tf_world = transform_to_root(state, default_frame(trunk))
+    # world = findbody(mech, "world") 
+    # tf_world = relative_transform(state, default_frame(world), default_frame(trunk))
+    return translation(tf_world)
+end
+
+function get_foot_position(model::UnitreeA1, q, foot="RR")
+    mech = model.mech 
+    T = eltype(q)
+    state = MechanismState{T}(mech)
+    set_configuration!(state, q)
+
+    foot_body = findbody(mech, foot * "_foot")
+    tf_world = transform_to_root(state, default_frame(foot_body))
+    # world = findbody(mech, "world") 
+    # tf_world = relative_transform(state, default_frame(world), default_frame(foot_body))
+    return translation(tf_world)
+end
+
+function get_trunk_velocity(model::UnitreeA1, x)
+    mech = model.mech 
+    T = eltype(x)
+    state = MechanismState{T}(mech)
+    copyto!(state, x)
+    trunk = findbody(mech, "trunk")
+    twist = twist_wrt_world(state, trunk)
+    v = linear(twist)
+    return v
+end
