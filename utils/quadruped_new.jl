@@ -71,15 +71,37 @@ function initial_state(model::UnitreeA1)
     return [configuration(state); velocity(state)]
 end
 
-function goal_state(model::UnitreeA1)
-    state = model.statecache[Float64]
-    a1 = model.mech
-    zero!(state)
-    floating_joint = findjoint(a1, "base_to_world")
-    trunk_height = get_foot_position(model, configuration(state))[3]
-    set_configuration!(state, floating_joint, [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, -trunk_height])
+function reference_trajectory(model::UnitreeA1, box_height=0.3, box_distance=0.7)
 
-    return [configuration(state); velocity(state)]
+    tf = 0.5
+    Δt = 1e-2
+    t_vec = collect(0:Δt:tf)
+    g = -9.81
+
+    nu = control_dim(model)
+
+    vx = box_distance/tf
+    vz = (box_height - 0.5*g*tf^2)/tf #sqrt(box_height*2*g)
+    @show vx
+    @show vz
+    v_des_vec = zeros(num_velocities(model.mech))
+    v_des_vec[6] = vz
+    v_des_vec[4] = vx
+
+    xic = initial_state(model)
+    state = MechanismState(model.mech)
+    set_configuration!(state, xic[1:num_positions(model.mech)])
+    set_velocity!(state, v_des_vec)
+    ts, qs, vs = simulate(state, tf; Δt = Δt)
+
+    N = length(t_vec) + 6
+    t_extend = collect(Δt*(1:6)) .+ tf
+
+    Xref = [[qs[i]; vs[i]] for i in 1:length(qs)]
+    Xref = vcat(fill(first(Xref), 3), Xref, fill(last(Xref), 3))
+    Uref = [[0.001*randn(nu); Δt] for i in 1:(N-1)]
+
+    return Xref, Uref, [t_vec;t_extend]
 end
 
 # function goal_state(model::UnitreeA1)
@@ -197,8 +219,8 @@ function create_idx(nx,nu,N)
     u = [(i - 1) * (nx + nu) .+ ((nx + 1):(nx + nu)) for i = 1:(N - 1)]
     
     # constraint indexing for the (N-1) dynamics constraints when stacked up
-    c = [(i - 1) * (nx-1) .+ (1 : nx-1) for i = 1:(N - 1)]
-    nc = (N - 1) * (nx-1) # (N-1)*nx 
+    c = [(i - 1) * (nx) .+ (1 : nx) for i = 1:(N - 1)]
+    nc = (N - 1) * nx # (N-1)*nx 
     
     return (nx=nx,nu=nu,N=N,nz=nz,nc=nc,x= x,u = u,c = c)
 end
