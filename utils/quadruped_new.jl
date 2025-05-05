@@ -51,7 +51,7 @@ function dynamics(model::UnitreeA1, x::AbstractVector{T1}, u::AbstractVector{T2}
     jac3 = jac_foot(model, q, "FL")
     jac4 = jac_foot(model, q, "RL")
     τ = [zeros(6); u]
-    dynamics!(res, state, τ + jac1'*[0.0; 0.0; λ[1]] + jac2'*[0.0; 0.0; λ[2]] + jac3'*[0.0; 0.0; λ[3]] + jac4'*[0.0; 0.0; λ[4]])
+    dynamics!(res, state, τ + jac1'*λ[1:3] + jac2'*λ[4:6] + jac3'*λ[7:9] + jac4'*λ[10:12])
     q̇ = res.q̇
     v̇ = res.v̇
     return [q̇; v̇]
@@ -182,9 +182,9 @@ function jac_foot(model::UnitreeA1, q, foot="RR")
     state = MechanismState{T}(mech)
     set_configuration!(state, q)
 
-    trunk_body = findbody(mech, "trunk")
+    world_body = root_body(mech) #findbody(mech, "world")
     foot_body = findbody(mech, foot * "_foot")
-    p = path(mech, trunk_body, foot_body)
+    p = path(mech, world_body, foot_body)
     jac = geometric_jacobian(state, p)
     return jac.linear
 end
@@ -226,21 +226,22 @@ end
 ##        UTILS         ## 
 ##########################
 
-function create_idx(nx,nu,N)
+function create_idx(nx,nu,nλ,N)
     # This function creates some useful indexing tools for Z 
     # x_i = Z[idx.x[i]]
     # u_i = Z[idx.u[i]]    
     
     # our Z vector is [x0, u0, x1, u1, …, xN]
-    nz = (N-1) * nu + N * nx # length of Z 
-    x = [(i - 1) * (nx + nu) .+ (1 : nx) for i = 1:N]
-    u = [(i - 1) * (nx + nu) .+ ((nx + 1):(nx + nu)) for i = 1:(N - 1)]
+    nz = (N-1) * nu + (N-1) * nλ + N * nx # length of Z 
+    x = [(i - 1) * (nx + nu + nλ) .+ (1 : nx) for i = 1:N]
+    u = [(i - 1) * (nx + nu + nλ) .+ ((nx + 1):(nx + nu)) for i = 1:(N - 1)]
+    λ = [(i - 1) * (nx + nu + nλ) .+ ((nx + nu + 1):(nx + nu + nλ)) for i = 1:(N - 1)]
     
     # constraint indexing for the (N-1) dynamics constraints when stacked up
     c = [(i - 1) * (nx) .+ (1 : nx) for i = 1:(N - 1)]
     nc = (N - 1) * nx # (N-1)*nx 
     
-    return (nx=nx,nu=nu,N=N,nz=nz,nc=nc,x= x,u = u,c = c)
+    return (nx=nx,nu=nu,nλ=nλ, N=N,nz=nz,nc=nc,x= x,u = u,λ=λ, c = c)
 end
 
 function quat2mrp(q)
